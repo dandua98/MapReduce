@@ -40,6 +40,7 @@ void MR_Run(int num_files, char *filenames[],
   std::sort(filenames, filenames + num_files, compareFileSize);
 
   partitions.clear();
+
   num_partitions = num_reducers;
   for (size_t i = 0; i < num_partitions; i++)
   {
@@ -56,14 +57,10 @@ void MR_Run(int num_files, char *filenames[],
   ThreadPool_destroy(mapPool);
 
   // temp
-  // for (size_t i = 0; i < num_partitions; i++)
-  // {
-  //   for (std::multimap<std::string, std::string>::const_iterator iter = partitions[num_partitions].begin();
-  //        iter != partitions[num_partitions].end(); ++iter)
-  //   {
-  //     std::cout << iter->first << '\t' << iter->second << '\n';
-  //   }
-  // }
+  for (size_t i = 0; i < num_partitions; i++)
+  {
+    std::cout << partitions[i].size() << std::endl;
+  }
 
   reducer = concate;
   for (size_t i = 0; i < num_reducers; i++)

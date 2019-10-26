@@ -9,6 +9,13 @@
 
 typedef void (*thread_func_t)(void *arg);
 
+enum PoolCondition
+{
+    created,
+    running,
+    stopped
+};
+
 typedef struct ThreadPool_work_t
 {
     thread_func_t func; // The function pointer
@@ -19,12 +26,13 @@ typedef struct
 {
     pthread_mutex_t taskMutex;
     pthread_cond_t wcond;
-    std::queue<ThreadPool_work_t> tasks;
+    std::queue<ThreadPool_work_t *> tasks;
 } ThreadPool_work_queue_t;
 
 typedef struct
 {
-    ThreadPool_work_queue_t taskQueue;
+    PoolCondition condition = created;
+    ThreadPool_work_queue_t *taskQueue;
     std::vector<pthread_t *> workers;
 } ThreadPool_t;
 
