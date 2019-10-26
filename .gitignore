@@ -34,3 +34,5 @@ wordcount
 
 # IDE Setting
 .vscode/
+
+.DS_Store
