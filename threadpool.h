@@ -1,7 +1,6 @@
 #ifndef THREADPOOL_H
 #define THREADPOOL_H
 
-#include <atomic>
 #include <vector>
 #include <queue>
 #include <thread>
@@ -25,17 +24,15 @@ typedef struct ThreadPool_work_t
 
 typedef struct
 {
-    pthread_mutex_t taskMutex;
-    pthread_cond_t wcond;
+    pthread_mutex_t wq_mutex;
+    pthread_cond_t wq_cond;
     std::queue<ThreadPool_work_t *> tasks;
 } ThreadPool_work_queue_t;
 
 typedef struct
 {
-    std::atomic<int> processed_jobs;
-    std::atomic<int> total_jobs;
     PoolCondition condition = created;
-    ThreadPool_work_queue_t *taskQueue;
+    ThreadPool_work_queue_t *workQueue;
     std::vector<pthread_t *> workers;
 } ThreadPool_t;
 

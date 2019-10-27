@@ -1,26 +1,23 @@
 #include "threadpool.h"
-#include <atomic>
 
 ThreadPool_t *ThreadPool_create(int num)
 {
   ThreadPool_t *threadPool = new ThreadPool_t;
-  threadPool->total_jobs = 0;
-  threadPool->processed_jobs = 0;
 
-  ThreadPool_work_queue_t *taskQueue = new ThreadPool_work_queue_t;
-  threadPool->taskQueue = taskQueue;
+  ThreadPool_work_queue_t *workQueue = new ThreadPool_work_queue_t;
+  threadPool->workQueue = workQueue;
 
-  for (size_t i = 0; i < num; i++)
+  for (size_t i = 0; i < (unsigned int)num; i++)
   {
     pthread_t *thread = new pthread_t;
-    pthread_create(thread, NULL, (void *_Nullable (*)(void *))Thread_run, threadPool);
+    pthread_create(thread, NULL, (void *(*)(void *))Thread_run, threadPool);
     threadPool->workers.push_back(thread);
   }
 
   threadPool->condition = running;
 
-  pthread_mutex_init(&threadPool->taskQueue->taskMutex, NULL);
-  pthread_cond_init(&threadPool->taskQueue->wcond, NULL);
+  pthread_mutex_init(&threadPool->workQueue->wq_mutex, NULL);
+  pthread_cond_init(&threadPool->workQueue->wq_cond, NULL);
 
   return threadPool;
 }
@@ -31,38 +28,37 @@ bool ThreadPool_add_work(ThreadPool_t *tp, thread_func_t func, void *arg)
   work->func = func;
   work->arg = arg;
 
-  int error = pthread_mutex_lock(&tp->taskQueue->taskMutex);
+  int error = pthread_mutex_lock(&tp->workQueue->wq_mutex);
   if (error < 0)
   {
     return false;
   }
-  tp->taskQueue->tasks.push(work);
-  tp->total_jobs++;
+  tp->workQueue->tasks.push(work);
 
-  pthread_cond_signal(&tp->taskQueue->wcond);
-  pthread_mutex_unlock(&tp->taskQueue->taskMutex);
+  pthread_cond_signal(&tp->workQueue->wq_cond);
+  pthread_mutex_unlock(&tp->workQueue->wq_mutex);
 
   return true;
 }
 
 ThreadPool_work_t *ThreadPool_get_work(ThreadPool_t *tp)
 {
-  pthread_mutex_lock(&tp->taskQueue->taskMutex);
-  while (tp->condition != stopped && tp->taskQueue->tasks.empty())
+  pthread_mutex_lock(&tp->workQueue->wq_mutex);
+  while (tp->condition != stopped && tp->workQueue->tasks.empty())
   {
-    pthread_cond_wait(&tp->taskQueue->wcond, &tp->taskQueue->taskMutex);
+    pthread_cond_wait(&tp->workQueue->wq_cond, &tp->workQueue->wq_mutex);
   }
 
   if (tp->condition == stopped)
   {
-    pthread_mutex_unlock(&tp->taskQueue->taskMutex);
+    pthread_mutex_unlock(&tp->workQueue->wq_mutex);
     pthread_exit(NULL);
   }
 
-  ThreadPool_work_t *work = tp->taskQueue->tasks.front();
-  tp->taskQueue->tasks.pop();
+  ThreadPool_work_t *work = tp->workQueue->tasks.front();
+  tp->workQueue->tasks.pop();
 
-  pthread_mutex_unlock(&tp->taskQueue->taskMutex);
+  pthread_mutex_unlock(&tp->workQueue->wq_mutex);
 
   return work;
 }
@@ -73,28 +69,35 @@ void *Thread_run(ThreadPool_t *tp)
   {
     ThreadPool_work_t *work = ThreadPool_get_work(tp);
     work->func(work->arg);
-    tp->processed_jobs++;
   }
   return NULL;
 }
 
 void ThreadPool_destroy(ThreadPool_t *tp)
 {
-  while (tp->processed_jobs != tp->total_jobs)
-    ;
+  while (true)
+  {
+    pthread_mutex_lock(&tp->workQueue->wq_mutex);
+    int size = tp->workQueue->tasks.size();
+    pthread_mutex_unlock(&tp->workQueue->wq_mutex);
+    if (size == 0)
+    {
+      break;
+    }
+  }
 
-  pthread_mutex_lock(&tp->taskQueue->taskMutex);
+  pthread_mutex_lock(&tp->workQueue->wq_mutex);
   tp->condition = stopped;
-  pthread_cond_broadcast(&tp->taskQueue->wcond);
-  pthread_mutex_unlock(&tp->taskQueue->taskMutex);
+  pthread_cond_broadcast(&tp->workQueue->wq_cond);
+  pthread_mutex_unlock(&tp->workQueue->wq_mutex);
 
-  for (size_t i = 0; i < tp->workers.size(); i++)
+  for (size_t i = 0; i < (unsigned int)tp->workers.size(); i++)
   {
     pthread_join(*tp->workers[i], NULL);
-    pthread_cond_broadcast(&tp->taskQueue->wcond);
+    pthread_cond_broadcast(&tp->workQueue->wq_cond);
   }
   tp->workers.clear();
 
-  pthread_mutex_destroy(&tp->taskQueue->taskMutex);
-  pthread_cond_destroy(&tp->taskQueue->wcond);
+  pthread_mutex_destroy(&tp->workQueue->wq_mutex);
+  pthread_cond_destroy(&tp->workQueue->wq_cond);
 }
