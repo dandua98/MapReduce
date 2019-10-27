@@ -9,6 +9,8 @@
 std::vector<std::multimap<std::string, std::string>> partitions;
 std::vector<pthread_mutex_t> partition_locks;
 
+std::vector<std::multimap<std::string, std::string>::iterator> reducer_iterators;
+
 int num_partitions = 0;
 
 Reducer reducer;
@@ -40,6 +42,7 @@ void MR_Run(int num_files, char *filenames[],
   std::sort(filenames, filenames + num_files, compareFileSize);
 
   partitions.clear();
+  partition_locks.clear();
 
   num_partitions = num_reducers;
   for (size_t i = 0; i < num_partitions; i++)
@@ -56,23 +59,23 @@ void MR_Run(int num_files, char *filenames[],
   }
   ThreadPool_destroy(mapPool);
 
-  // temp
-  for (size_t i = 0; i < num_partitions; i++)
-  {
-    std::cout << partitions[i].size() << std::endl;
-  }
-
   reducer = concate;
   for (size_t i = 0; i < num_reducers; i++)
   {
-    MR_ProcessPartition(i);
+    reducer_iterators.push_back(partitions[i].begin());
+    pthread_t *thread = new pthread_t;
+    pthread_create(thread, NULL, (void *_Nullable (*)(void *))MR_ProcessPartition, (void *)i);
   }
 }
 
 void MR_Emit(char *key, char *value)
 {
   unsigned long partition_index = MR_Partition(key, num_partitions);
-  partitions[partition_index].insert(std::make_pair(std::string(key), std::string(value)));
+
+  pthread_mutex_lock(&partition_locks[partition_index]);
+  partitions[partition_index]
+      .insert(std::make_pair(std::string(key), std::string(value)));
+  pthread_mutex_unlock(&partition_locks[partition_index]);
 }
 
 unsigned long MR_Partition(char *key, int num_partitions)
@@ -88,9 +91,33 @@ unsigned long MR_Partition(char *key, int num_partitions)
 
 void MR_ProcessPartition(int partition_number)
 {
+  std::multimap<std::string, std::string> partitionMap = partitions[partition_number];
+  std::multimap<std::string, std::string>::iterator it, end;
+
+  for (it = partitionMap.begin(), end = partitionMap.end();
+       it != end; it = partitionMap.upper_bound(it->first))
+  {
+    reducer((char *)it->first.c_str(), partition_number);
+  }
 }
 
 char *MR_GetNext(char *key, int partition_number)
 {
-  return NULL;
+  std::multimap<std::string, std::string>::iterator it = reducer_iterators[partition_number];
+
+  if (it == partitions[partition_number].end())
+  {
+    return NULL;
+  }
+
+  if (it->first == std::string(key))
+  {
+    char *val = (char *)it->second.c_str();
+    reducer_iterators[partition_number]++;
+    return val;
+  }
+  else
+  {
+    return NULL;
+  }
 }

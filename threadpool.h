@@ -1,6 +1,7 @@
 #ifndef THREADPOOL_H
 #define THREADPOOL_H
 
+#include <atomic>
 #include <vector>
 #include <queue>
 #include <thread>
@@ -31,6 +32,8 @@ typedef struct
 
 typedef struct
 {
+    std::atomic<int> processed_jobs;
+    std::atomic<int> total_jobs;
     PoolCondition condition = created;
     ThreadPool_work_queue_t *taskQueue;
     std::vector<pthread_t *> workers;

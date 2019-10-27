@@ -1,15 +1,11 @@
 #include "threadpool.h"
-#include <iostream>
-
-void *threadRunner(void *param)
-{
-  Thread_run((ThreadPool_t *)param);
-  return NULL;
-}
+#include <atomic>
 
 ThreadPool_t *ThreadPool_create(int num)
 {
   ThreadPool_t *threadPool = new ThreadPool_t;
+  threadPool->total_jobs = 0;
+  threadPool->processed_jobs = 0;
 
   ThreadPool_work_queue_t *taskQueue = new ThreadPool_work_queue_t;
   threadPool->taskQueue = taskQueue;
@@ -17,7 +13,7 @@ ThreadPool_t *ThreadPool_create(int num)
   for (size_t i = 0; i < num; i++)
   {
     pthread_t *thread = new pthread_t;
-    pthread_create(thread, NULL, threadRunner, threadPool);
+    pthread_create(thread, NULL, (void *_Nullable (*)(void *))Thread_run, threadPool);
     threadPool->workers.push_back(thread);
   }
 
@@ -41,6 +37,7 @@ bool ThreadPool_add_work(ThreadPool_t *tp, thread_func_t func, void *arg)
     return false;
   }
   tp->taskQueue->tasks.push(work);
+  tp->total_jobs++;
 
   pthread_cond_signal(&tp->taskQueue->wcond);
   pthread_mutex_unlock(&tp->taskQueue->taskMutex);
@@ -60,7 +57,6 @@ ThreadPool_work_t *ThreadPool_get_work(ThreadPool_t *tp)
   {
     pthread_mutex_unlock(&tp->taskQueue->taskMutex);
     pthread_exit(NULL);
-    return NULL;
   }
 
   ThreadPool_work_t *work = tp->taskQueue->tasks.front();
@@ -73,13 +69,20 @@ ThreadPool_work_t *ThreadPool_get_work(ThreadPool_t *tp)
 
 void *Thread_run(ThreadPool_t *tp)
 {
-  ThreadPool_work_t work = *ThreadPool_get_work(tp);
-  work.func(work.arg);
+  while (true)
+  {
+    ThreadPool_work_t *work = ThreadPool_get_work(tp);
+    work->func(work->arg);
+    tp->processed_jobs++;
+  }
   return NULL;
 }
 
 void ThreadPool_destroy(ThreadPool_t *tp)
 {
+  while (tp->processed_jobs != tp->total_jobs)
+    ;
+
   pthread_mutex_lock(&tp->taskQueue->taskMutex);
   tp->condition = stopped;
   pthread_cond_broadcast(&tp->taskQueue->wcond);
