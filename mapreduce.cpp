@@ -7,10 +7,8 @@
 #include "mapreduce.h"
 #include "threadpool.h"
 
-std::vector<std::multimap<std::string, std::string>> partitions;
+std::vector<std::map<std::string, std::vector<std::string>>> partitions;
 std::vector<pthread_mutex_t> partition_locks;
-
-std::vector<std::multimap<std::string, std::string>::iterator> reducer_iterators;
 
 int num_partitions = 0;
 
@@ -21,10 +19,10 @@ Reducer reducer;
 */
 bool compare_file_size(char *file1, char *file2)
 {
-  struct stat file1_buf, file2_buf;
-  stat(file1, &file1_buf);
-  stat(file2, &file2_buf);
-  return file1_buf.st_size > file2_buf.st_size;
+  struct stat file1_stat, file2_stat;
+  stat(file1, &file1_stat);
+  stat(file2, &file2_stat);
+  return file1_stat.st_size > file2_stat.st_size;
 }
 
 void MR_Run(int num_files, char *filenames[],
@@ -39,7 +37,6 @@ void MR_Run(int num_files, char *filenames[],
       exit(1);
     }
   }
-
   std::sort(filenames, filenames + num_files, compare_file_size);
 
   partitions.clear();
@@ -48,9 +45,8 @@ void MR_Run(int num_files, char *filenames[],
   num_partitions = num_reducers;
   for (size_t i = 0; i < (unsigned int)num_partitions; i++)
   {
-    partitions.push_back(std::multimap<std::string, std::string>());
+    partitions.push_back(std::map<std::string, std::vector<std::string>>());
     partition_locks.push_back(PTHREAD_MUTEX_INITIALIZER);
-    pthread_mutex_init(&partition_locks[i], 0);
   }
 
   ThreadPool_t *mapPool = ThreadPool_create(num_mappers);
@@ -61,21 +57,25 @@ void MR_Run(int num_files, char *filenames[],
   ThreadPool_destroy(mapPool);
 
   reducer = concate;
-  for (size_t i = 0; i < (unsigned int)num_reducers; i++)
+  ThreadPool_t *reducerPool = ThreadPool_create(num_partitions);
+  for (size_t i = 0; i < (unsigned int)num_partitions; i++)
   {
-    reducer_iterators.push_back(partitions[i].begin());
-    pthread_t *thread = new pthread_t();
-    pthread_create(thread, NULL, (void *(*)(void *))MR_ProcessPartition, (void *)i);
+    ThreadPool_add_work(reducerPool, (thread_func_t)MR_ProcessPartition, (void *)i);
+  }
+  ThreadPool_destroy(reducerPool);
+
+  for (size_t i = 0; i < (unsigned int)num_partitions; i++)
+  {
+    pthread_mutex_destroy(&partition_locks[i]);
   }
 }
 
 void MR_Emit(char *key, char *value)
 {
   unsigned long partition_index = MR_Partition(key, num_partitions);
-
   pthread_mutex_lock(&partition_locks[partition_index]);
-  partitions[partition_index]
-      .insert(std::make_pair(std::string(key), std::string(value)));
+  partitions[partition_index][std::string(key)]
+      .push_back(std::string(value));
   pthread_mutex_unlock(&partition_locks[partition_index]);
 }
 
@@ -92,13 +92,9 @@ unsigned long MR_Partition(char *key, int num_partitions)
 
 void MR_ProcessPartition(int partition_number)
 {
-  std::multimap<std::string, std::string> partitionMap = partitions.at(partition_number);
-  std::multimap<std::string, std::string>::iterator it, end;
-
-  for (it = partitionMap.begin(), end = partitionMap.end();
-       it != end; it = partitionMap.upper_bound(it->first))
+  for (std::pair<std::string, std::vector<std::string>> partition : partitions[partition_number])
   {
-    reducer((char *)it->first.c_str(), partition_number + 1);
+    reducer((char *)partition.first.c_str(), partition_number + 1);
   }
 }
 
@@ -106,20 +102,18 @@ char *MR_GetNext(char *key, int partition_number)
 {
   partition_number -= 1;
 
-  std::multimap<std::string, std::string>::iterator it = reducer_iterators.at(partition_number);
+  std::string curr_key = key;
+  std::string value;
 
-  if (it == partitions.at(partition_number).end())
+  if (!partitions[partition_number][curr_key].empty())
   {
-    return NULL;
-  }
-
-  if (it->first == std::string(key))
-  {
-    reducer_iterators.at(partition_number)++;
-    return (char *)it->second.c_str();
+    value = partitions[partition_number][curr_key].back();
+    partitions[partition_number][curr_key].pop_back();
   }
   else
   {
     return NULL;
   }
+
+  return (char *)value.c_str();
 }
