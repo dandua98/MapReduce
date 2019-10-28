@@ -3,7 +3,6 @@
 
 #include <vector>
 #include <queue>
-#include <thread>
 #include <pthread.h>
 #include <stdbool.h>
 

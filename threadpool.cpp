@@ -1,4 +1,3 @@
-#include <pthread.h>
 #include "threadpool.h"
 
 ThreadPool_t *ThreadPool_create(int num)
