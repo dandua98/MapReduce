@@ -2,12 +2,8 @@
 
 ThreadPool_t *ThreadPool_create(int num)
 {
-  ThreadPool_work_queue_t *workQueue = new ThreadPool_work_queue_t;
-  workQueue->wq_mutex = PTHREAD_MUTEX_INITIALIZER;
-  workQueue->wq_cond = PTHREAD_COND_INITIALIZER;
-
   ThreadPool_t *threadPool = new ThreadPool_t;
-  threadPool->workQueue = workQueue;
+  threadPool->workQueue = new ThreadPool_work_queue_t;
 
   for (size_t i = 0; i < (unsigned int)num; i++)
   {
@@ -16,21 +12,15 @@ ThreadPool_t *ThreadPool_create(int num)
     threadPool->workers.push_back(thread);
   }
 
-  threadPool->condition = running;
-
   return threadPool;
 }
 
 bool ThreadPool_add_work(ThreadPool_t *tp, thread_func_t func, void *arg)
 {
-  ThreadPool_work_t *work = new ThreadPool_work_t;
-  work->func = func;
-  work->arg = arg;
-
   pthread_mutex_lock(&tp->workQueue->wq_mutex);
-  tp->workQueue->tasks.push(work);
-  pthread_cond_signal(&tp->workQueue->wq_cond);
+  tp->workQueue->tasks.push(new ThreadPool_work_t{func, arg});
   pthread_mutex_unlock(&tp->workQueue->wq_mutex);
+  pthread_cond_signal(&tp->workQueue->wq_cond);
 
   return true;
 }
@@ -38,12 +28,12 @@ bool ThreadPool_add_work(ThreadPool_t *tp, thread_func_t func, void *arg)
 ThreadPool_work_t *ThreadPool_get_work(ThreadPool_t *tp)
 {
   pthread_mutex_lock(&tp->workQueue->wq_mutex);
-  while (tp->condition != stopped && tp->workQueue->tasks.empty())
+  while (!tp->stopped && tp->workQueue->tasks.empty())
   {
     pthread_cond_wait(&tp->workQueue->wq_cond, &tp->workQueue->wq_mutex);
   }
 
-  if (tp->condition == stopped)
+  if (tp->stopped)
   {
     pthread_mutex_unlock(&tp->workQueue->wq_mutex);
     pthread_exit(NULL);
@@ -51,7 +41,6 @@ ThreadPool_work_t *ThreadPool_get_work(ThreadPool_t *tp)
 
   ThreadPool_work_t *work = tp->workQueue->tasks.front();
   tp->workQueue->tasks.pop();
-
   pthread_mutex_unlock(&tp->workQueue->wq_mutex);
 
   return work;
@@ -65,7 +54,6 @@ void *Thread_run(ThreadPool_t *tp)
     work->func(work->arg);
     delete work;
   }
-  return NULL;
 }
 
 void ThreadPool_destroy(ThreadPool_t *tp)
@@ -76,23 +64,19 @@ void ThreadPool_destroy(ThreadPool_t *tp)
     int size = tp->workQueue->tasks.size();
     pthread_mutex_unlock(&tp->workQueue->wq_mutex);
     if (size == 0)
-    {
       break;
-    }
   }
 
   pthread_mutex_lock(&tp->workQueue->wq_mutex);
-  tp->condition = stopped;
-  pthread_cond_broadcast(&tp->workQueue->wq_cond);
+  tp->stopped = true;
   pthread_mutex_unlock(&tp->workQueue->wq_mutex);
+  pthread_cond_broadcast(&tp->workQueue->wq_cond);
 
   for (size_t i = 0; i < (unsigned int)tp->workers.size(); i++)
   {
     pthread_join(*tp->workers[i], NULL);
-    pthread_cond_broadcast(&tp->workQueue->wq_cond);
     delete tp->workers[i];
   }
-  tp->workers.clear();
 
   pthread_mutex_destroy(&tp->workQueue->wq_mutex);
   pthread_cond_destroy(&tp->workQueue->wq_cond);

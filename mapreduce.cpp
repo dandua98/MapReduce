@@ -15,28 +15,20 @@ int num_partitions = 0;
 Reducer reducer;
 
 /*
-* custom sorter to sort filenames by filesizes in descending order
+* custom comparator to sort filenames by filesizes in descending order
 */
 bool compare_file_size(char *file1, char *file2)
 {
-  struct stat file1_stat, file2_stat;
-  stat(file1, &file1_stat);
-  stat(file2, &file2_stat);
-  return file1_stat.st_size > file2_stat.st_size;
+  struct stat stat1, stat2;
+  stat(file1, &stat1);
+  stat(file2, &stat2);
+  return stat1.st_size > stat2.st_size;
 }
 
 void MR_Run(int num_files, char *filenames[],
             Mapper map, int num_mappers,
             Reducer concate, int num_reducers)
 {
-  for (size_t i = 0; i < (unsigned int)num_files; i++)
-  {
-    if (access(filenames[i], F_OK) != 0)
-    {
-      std::cout << filenames[i] << " not found" << std::endl;
-      exit(1);
-    }
-  }
   std::sort(filenames, filenames + num_files, compare_file_size);
 
   partitions.clear();
@@ -94,26 +86,19 @@ void MR_ProcessPartition(int partition_number)
 {
   for (std::pair<std::string, std::vector<std::string>> partition : partitions[partition_number])
   {
-    reducer((char *)partition.first.c_str(), partition_number + 1);
+    reducer((char *)partition.first.c_str(), partition_number);
   }
 }
 
 char *MR_GetNext(char *key, int partition_number)
 {
-  partition_number -= 1;
-
   std::string curr_key = key;
-  std::string value;
 
   if (!partitions[partition_number][curr_key].empty())
   {
-    value = partitions[partition_number][curr_key].back();
+    std::string value = partitions[partition_number][curr_key].back();
     partitions[partition_number][curr_key].pop_back();
+    return (char *)value.c_str();
   }
-  else
-  {
-    return NULL;
-  }
-
-  return (char *)value.c_str();
+  return NULL;
 }
