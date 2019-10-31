@@ -23,7 +23,7 @@ typedef struct
 
 typedef struct
 {
-    bool stopped = false;
+    volatile bool stopped = false;
     ThreadPool_work_queue_t *workQueue;
     std::vector<pthread_t *> workers;
 } ThreadPool_t;
