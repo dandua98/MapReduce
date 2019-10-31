@@ -39,3 +39,6 @@ wordcount
 
 # result
 result-*.txt
+
+# submission
+*.tar.gz

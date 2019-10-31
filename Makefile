@@ -12,8 +12,8 @@ mapreduce.o: mapreduce.cpp mapreduce.h threadpool.h
 distwc.o: distwc.cpp mapreduce.h
 	g++ -std=c++11 -I./ -c distwc.cpp -Wall -Werror -pthread
 
-compress: Makefile *.cpp *.h *.c README.md
-	tar -czvf mapreduce.tar.gz Makefile *.cpp *.h *.c README.md
+compress: Makefile *.cpp *.h README.md
+	tar -czvf mapreduce.tar.gz Makefile *.cpp *.h README.md
 
 clean:
 	rm -rf *.o wordcount *.tar.gz
